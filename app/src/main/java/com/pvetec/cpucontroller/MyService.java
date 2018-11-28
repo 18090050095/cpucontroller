@@ -12,13 +12,11 @@ import java.util.ArrayList;
 public class MyService extends Service {
 
     private static final String TAG = "MyService";
-    private String tagetRate;
-    public static final int GET_CPU_RATE = 1;
+    private String targetRate;
+    private static final int GET_CPU_RATE = 1;
     private ArrayList<OccupyThread> mThreads;
-    private boolean isContinue = true;
-    private Runnable runnable;
 
-    private Handler mHandler = new Handler() {
+    private final Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             super.handleMessage(msg);
@@ -37,7 +35,7 @@ public class MyService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        tagetRate = intent.getStringExtra("tagRate");
+        targetRate = intent.getStringExtra("tagRate");
         initTask();
         return super.onStartCommand(intent, flags, startId);
     }
@@ -46,9 +44,10 @@ public class MyService extends Service {
     public void onDestroy() {
         super.onDestroy();
         closeThreads();
-        isContinue = false;
-        mHandler.removeCallbacks(runnable);
-        Log.d(TAG, "onDestroy: "+ mThreads.size());
+        mHandler.removeCallbacksAndMessages(null);
+//        isContinue = false;
+//        mHandler.removeCallbacks(runnable);
+        Log.d(TAG, "onDestroy: " + mThreads.size());
     }
 
     @Override
@@ -57,7 +56,7 @@ public class MyService extends Service {
     }
 
     private void initTask() {
-        runnable = new Runnable() {
+        Runnable runnable = new Runnable() {
             @Override
             public void run() {
                 // 获取CPU使用率
@@ -69,28 +68,33 @@ public class MyService extends Service {
                 mHandler.sendMessage(msg);
                 //发送广播UI显示占用率
                 Intent mIntent = new Intent("UPDATE_NOWRATE");
-                mIntent.putExtra("nowRate",cpuRate);
+                mIntent.putExtra("nowRate", cpuRate);
                 sendBroadcast(mIntent);
-                Log.d(TAG, "sendBroadcast: "+cpuRate);
+                Log.d(TAG, "sendBroadcast: " + cpuRate);
                 //3s后执行this，即runable
-                if (isContinue) {
-                    mHandler.postDelayed(this, 3000);
-                }
+                mHandler.postDelayed(this, 3000);
             }
         };
         mHandler.post(runnable);// 打开定时器
     }
 
-    public void handleCPURate(Float cpuRateNow) {
-        if (tagetRate == null || tagetRate.equals("")) {
+    private void handleCPURate(Float cpuRateNow) {
+        if (targetRate == null || targetRate.equals("")) {
+            return;
+        }
+        if (cpuRateNow == 0) {
             return;
         }
         //判断输入值是否合理
-        if (Float.parseFloat(tagetRate) > 0 && Float.parseFloat(tagetRate) <= 100) {
+        if (Float.parseFloat(targetRate) > 0 && Float.parseFloat(targetRate) <= 100) {
+            //如果期望值等于实际值，直接返回
+            if (cpuRateNow == Float.parseFloat(targetRate)) {
+                return;
+            }
             //判断目标CPU占用率是否大于实际占用率。大于，增加线程；小于，移除线程。
-            if (Float.parseFloat(tagetRate) > cpuRateNow) {
+            if (Float.parseFloat(targetRate) > cpuRateNow) {
                 //如果目标占用率大于实际值10以上，则一次性增加10个线程
-                if (Float.parseFloat(tagetRate) - cpuRateNow > 10) {
+                if (Float.parseFloat(targetRate) - cpuRateNow >= 10) {
                     Log.d(TAG, "handleCPURate: " + "add 10-threads");
                     for (int i = 0; i < 10; i++) {
                         addThread();
@@ -100,7 +104,7 @@ public class MyService extends Service {
                     addThread();
                 }
                 //如果目标占用率小于实际值10以下，则一次性移除10个线程
-            } else if (cpuRateNow - Float.parseFloat(tagetRate) > 10) {
+            } else if (cpuRateNow - Float.parseFloat(targetRate) >= 10) {
                 Log.d(TAG, "handleCPURate: " + "remove 10-threads");
                 for (int i = 0; i < 10; i++) {
                     removeThread();
@@ -113,13 +117,13 @@ public class MyService extends Service {
         Log.d(TAG, "ThreadCount: " + mThreads.size());
         Intent threadsIntent = new Intent();
         threadsIntent.setAction("THREAD_COUNT");
-        threadsIntent.putExtra("threadCount",mThreads.size());
+        threadsIntent.putExtra("threadCount", mThreads.size());
         sendBroadcast(threadsIntent);
     }
 
     private void removeThread() {
         if (mThreads.size() > 0) {
-            mThreads.get(0).setClose(true);
+            mThreads.get(0).setClose();
             mThreads.remove(0);
         }
     }
@@ -132,7 +136,7 @@ public class MyService extends Service {
 
     private void closeThreads() {
         for (OccupyThread occupyThread : mThreads) {
-            occupyThread.setClose(true);
+            occupyThread.setClose();
         }
         mThreads.clear();
     }
