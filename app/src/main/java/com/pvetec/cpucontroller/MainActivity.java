@@ -1,24 +1,36 @@
 package com.pvetec.cpucontroller;
 
-import android.content.BroadcastReceiver;
-import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
-import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 
 import com.robinhood.ticker.TickerUtils;
 import com.robinhood.ticker.TickerView;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener, CpuRateGetListener {
 
     private EditText etTargetRate;
     private TickerView mCPURate;
     private TickerView mThreadCount;
-    private final MyBroadcastReceiver myBroadcastReceiver = new MyBroadcastReceiver();
+
+    private MyService.CpuRateBinder mBinder;
+    private ServiceConnection connect = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            mBinder = (MyService.CpuRateBinder) service;
+            mBinder.setOnGetListener(MainActivity.this);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -26,6 +38,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         setContentView(R.layout.activity_main);
 
         initView();
+        Intent intentStart = new Intent(this, MyService.class);
+        startService(intentStart);
+        bindService(intentStart, connect, BIND_AUTO_CREATE);
     }
 
     private void initView() {
@@ -38,29 +53,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         findViewById(R.id.start_service).setOnClickListener(this);
         findViewById(R.id.stop_service).setOnClickListener(this);
 
-        IntentFilter mIntentFilter = new IntentFilter();
-        mIntentFilter.addAction("UPDATE_NOWRATE");
-        mIntentFilter.addAction("THREAD_COUNT");
-        registerReceiver(myBroadcastReceiver, mIntentFilter);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        unregisterReceiver(myBroadcastReceiver);
+        unbindService(connect);
     }
 
     @Override
     public void onClick(View v) {
         switch (v.getId()) {
             case R.id.start_service:
-                Intent intentStart = new Intent(this, MyService.class);
-                intentStart.putExtra("tagRate", etTargetRate.getText().toString().trim());
-                startService(intentStart);
+                mBinder.startTask(etTargetRate.getText().toString().trim());
                 break;
             case R.id.stop_service:
-                Intent stopIntent = new Intent(this, MyService.class);
-                stopService(stopIntent);
+                mBinder.stopTask();
                 mCPURate.setText("0");
                 mThreadCount.setText("0");
                 break;
@@ -69,23 +77,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
     }
 
-    class MyBroadcastReceiver extends BroadcastReceiver {
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent == null || intent.getAction() == null) {
-                throw new NullPointerException();
-            }
-            switch (intent.getAction()) {
-                case "UPDATE_NOWRATE":
-                    mCPURate.setText(intent.getFloatExtra("nowRate", 0) + "");
-                    break;
-                case "THREAD_COUNT":
-                    mThreadCount.setText(intent.getIntExtra("threadCount", 0) + "");
-                    break;
-                default:
-                    break;
-            }
-        }
+    @Override
+    public void onRateGet(float rate) {
+        mCPURate.setText(rate + "");
     }
+
+    @Override
+    public void onThreadUpdate(int count) {
+        mThreadCount.setText(count + "");
+    }
+
 }
